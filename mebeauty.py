@@ -6,7 +6,7 @@ import cv2
 
 import numpy as np
 
-from VisualAttractiveness import VisualAttractiveness
+from visual_attractiveness import VisualAttractiveness
 
 predictor = VisualAttractiveness()
 
