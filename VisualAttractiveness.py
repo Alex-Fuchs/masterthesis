@@ -50,9 +50,9 @@ class VisualAttractiveness(nn.Module):
 
             if len(captions) == 2:
                 gender = self.predict(face, ["man", "woman"]).argmax()
-                score = round(self.predict(face, captions[gender])[0][0] * 10, 1)
+                score = self.predict(face, captions[gender])[0][0] * 10
             else:
-                score = round(self.predict(face, captions)[0][0] * 10, 1)
+                score = self.predict(face, captions[0])[0][0] * 10
 
             return score, face, False
         else:
@@ -71,9 +71,9 @@ class VisualAttractiveness(nn.Module):
 
             if len(captions) == 2:
                 gender = self.predict(human, ["man", "woman"]).argmax()
-                score = round(self.predict(human, captions[gender])[0][0] * 10, 1)
+                score = self.predict(human, captions[gender])[0][0] * 10
             else:
-                score = round(self.predict(human, captions)[0][0] * 10, 1)
+                score = self.predict(human, captions[0])[0][0] * 10
 
             return score, human, False
         else:
@@ -95,8 +95,9 @@ if __name__ == "__main__":
     predictor = VisualAttractiveness()
 
     image = cv2.imread(image_path)
-    facial_beauty_score, face, _ = predictor.predict_facial_beauty(image, [["handsome", "ugly"], ["beautiful", "ugly"]])
-    human_beauty_score, human, _ = predictor.predict_physical_beauty(image, [["handsome", "ugly"], ["beautiful", "ugly"]])
+
+    facial_beauty_score, face, _ = predictor.predict_facial_beauty(image, [["attractive", "unattractive"]])
+    human_beauty_score, human, _ = predictor.predict_physical_beauty(image, [["attractive", "unattractive"]])
 
     print(f'FB: {facial_beauty_score}, HB: {human_beauty_score}')
     face.show()

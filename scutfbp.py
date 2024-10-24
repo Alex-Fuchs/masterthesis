@@ -30,11 +30,12 @@ def test(image_with_score):
     avg_face = []
     avg_body = []
     for name, image, score in image_with_score:
-        facial_beauty_score, _, _ = predictor.predict_facial_beauty(image_with_score[0][1], ["attractive", "ugly"])
-        human_beauty_score, _, _ = predictor.predict_physical_beauty(image_with_score[0][1], ["attractive", "ugly"])
+        facial_beauty_score, _, _ = predictor.predict_facial_beauty(image, [["attractive", "unattractive"]])
+        human_beauty_score, _, _ = predictor.predict_physical_beauty(image, [["attractive", "unattractive"]])
 
-        avg_face.append(abs((facial_beauty_score / 2.5 + 1) - score))
-        avg_body.append(abs((human_beauty_score / 2.5 + 1) - score))
+        if facial_beauty_score is not None and human_beauty_score is not None:
+            avg_face.append(abs(facial_beauty_score - (score - 1) * 2.5))
+            avg_body.append(abs(human_beauty_score - (score - 1) * 2.5))
 
     print(np.mean(np.array(avg_face)))
     print(np.mean(np.array(avg_body)))

@@ -39,11 +39,12 @@ def test(image_with_score):
     avg_face = []
     avg_body = []
     for name, image, score in image_with_score:
-        facial_beauty_score, _, _ = predictor.predict_facial_beauty(image_with_score[0][1], [["handsome", "ugly"], ["beautiful", "ugly"]])
-        human_beauty_score, _, _ = predictor.predict_physical_beauty(image_with_score[0][1], [["handsome", "ugly"], ["beautiful", "ugly"]])
+        facial_beauty_score, _, _ = predictor.predict_facial_beauty(image, [["attractive", "unattractive"]])
+        human_beauty_score, _, _ = predictor.predict_physical_beauty(image, [["attractive", "unattractive"]])
 
-        avg_face.append(abs((facial_beauty_score * 9/10 + 1) - score))
-        avg_body.append(abs((human_beauty_score * 9/10 + 1) - score))
+        if facial_beauty_score is not None and human_beauty_score is not None:
+            avg_face.append(abs(facial_beauty_score - (score - 1) * 10/9))
+            avg_body.append(abs(human_beauty_score - (score - 1) * 10/9))
 
     print(np.mean(np.array(avg_face)))
     print(np.mean(np.array(avg_body)))
@@ -54,7 +55,6 @@ if __name__ == "__main__":
     name_to_image = load_images_from_folder()
 
     image_with_score = [(name, name_to_image[name], score) for name, score in name_to_score.items() if name in list(name_to_image.keys())]
-    image_with_score = image_with_score[:100]
 
     test(image_with_score)
 
