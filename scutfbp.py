@@ -6,7 +6,7 @@ import numpy as np
 
 from visual_attractiveness import VisualAttractiveness
 
-predictor = VisualAttractiveness()
+predictor = VisualAttractiveness(["attractive", "unattractive"])
 
 
 def load_images_from_folder(folder_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/SCUT-FBP5500_v2/Images'):
@@ -30,8 +30,8 @@ def test(image_with_score):
     avg_face = []
     avg_body = []
     for name, image, score in image_with_score:
-        facial_beauty_score, _, _ = predictor.predict_facial_beauty(image, [["attractive", "unattractive"]])
-        human_beauty_score, _, _ = predictor.predict_physical_beauty(image, [["attractive", "unattractive"]])
+        facial_beauty_score, _ = predictor.predict_facial_beauty(image)
+        human_beauty_score, _ = predictor.predict_physical_beauty(image)
 
         if facial_beauty_score is not None and human_beauty_score is not None:
             avg_face.append(abs(facial_beauty_score - (score - 1) * 2.5))

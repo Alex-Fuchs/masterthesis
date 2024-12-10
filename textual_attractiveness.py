@@ -1,15 +1,14 @@
 import re
 
+import config
+
 from openai import OpenAI
 
 
 class TextualAttractiveness:
 
-    def __init__(self, device="mps"):
-        super().__init__()
-        self.device = device
-
-        self.model = OpenAI()
+    def __init__(self):
+        self.model = OpenAI(api_key=config.open_ai_key)
 
     def predict(self, prompt):
         completion = self.model.chat.completions.create(
@@ -22,18 +21,16 @@ class TextualAttractiveness:
 
         return completion.choices[0].message
 
-    def predict_bio_attractiveness(self):
-        prompt = 'Rate the following online dating profile text according to the attractiveness on a scale from 0 to 10: ' \
-                 'I do not like men which do not pay for me.'
+    def predict_bio_attractiveness(self, bio: str, gender):
+        prompt = (f'Rate the following online dating profile text according to the attractiveness on a scale from 0 to 10: {bio}. '
+                  f'Only output the score.')
 
         result = self.predict(prompt)
-        score_texts = re.findall(' . out of 10', result.content)
 
-        if len(score_texts) == 1:
-            score_text = score_texts[0]
-            return int(score_text.split()[0])
-        else:
-            return None
+        try:
+            return int(result.content)
+        except ValueError:
+            print(f'Error: {result.content}')
 
     def predict_chat_attractiveness(self):
         pass
