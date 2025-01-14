@@ -1,5 +1,3 @@
-import re
-
 import config
 
 from openai import OpenAI
@@ -21,22 +19,19 @@ class TextualAttractiveness:
 
         return completion.choices[0].message
 
-    def predict_bio_attractiveness(self, bio: str, gender):
+    def predict_score(self, bio: str, gender: str, searching_for: str):
         prompt = (f'Rate the following online dating profile text according to the attractiveness on a scale from 0 to 10: {bio}. '
-                  f'Only output the score.')
+                  f'The person is a {gender}, searching for {searching_for}. Only output the score:')
 
         result = self.predict(prompt)
 
         try:
-            return int(result.content)
+            return float(result.content)
         except ValueError:
             print(f'Error: {result.content}')
-
-    def predict_chat_attractiveness(self):
-        pass
 
 
 if __name__ == "__main__":
     predictor = TextualAttractiveness()
 
-    print(predictor.predict_bio_attractiveness())
+    print(predictor.predict_score())
