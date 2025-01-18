@@ -9,12 +9,14 @@ from torch.utils.data import DataLoader
 import dataset_mebeauty as mebeauty
 import visual_attractiveness
 
+device = torch.device("cuda" if torch.cuda.is_available() else "mps")
+
 
 def train_1st_stage(number_of_epochs, batch_size):
     predictor = visual_attractiveness.VisualAttractiveness()
 
     text_features = torch.load("weights/text_features_mebeauty_50k.pth")
-    text_features = nn.Parameter(torch.tensor(text_features, dtype=torch.float32, requires_grad=True)).to("mps")
+    text_features = nn.Parameter(torch.tensor(text_features, dtype=torch.float32, requires_grad=True)).to(device)
 
     mse_loss = nn.MSELoss()
     optimizer = optim.Adam([text_features], lr=1e-4)
@@ -34,11 +36,11 @@ def train_1st_stage(number_of_epochs, batch_size):
             latents, scores = list(zip(*latent_to_score))
 
             image_features = torch.cat(latents, dim=0)
-            image_features = torch.tensor(image_features, dtype=torch.float32).to("mps")
+            image_features = torch.tensor(image_features, dtype=torch.float32).to(device)
 
             predicted_scores = predictor.predict_scores(image_features, text_features)
 
-            scores = torch.tensor(scores, dtype=torch.float32).to("mps")
+            scores = torch.tensor(scores, dtype=torch.float32).to(device)
             scores = scores.unsqueeze(-1)
             scores = torch.cat([scores, 10 - scores], dim=1)
 
@@ -77,18 +79,18 @@ def batch_2nd_stage(raters_with_scores, image_path_to_latent, k, batch_size):
             latents, scores = list(zip(*latent_to_score))
 
             images_support = torch.cat(latents[:k], dim=0)
-            images_support = torch.tensor(images_support, dtype=torch.float32).to("mps")
+            images_support = torch.tensor(images_support, dtype=torch.float32).to(device)
             images_support_batch.append(images_support)
 
             images_query = torch.cat(latents[k:], dim=0)
-            images_query = torch.tensor(images_query, dtype=torch.float32).to("mps")
+            images_query = torch.tensor(images_query, dtype=torch.float32).to(device)
             images_query_batch.append(images_query)
 
-            scores_support = torch.tensor(scores[:k], dtype=torch.float32).to("mps")
+            scores_support = torch.tensor(scores[:k], dtype=torch.float32).to(device)
             scores_support = scores_support.unsqueeze(-1)
             scores_support_batch.append(scores_support)
 
-            scores_query = torch.tensor(scores[k:], dtype=torch.float32).to("mps")
+            scores_query = torch.tensor(scores[k:], dtype=torch.float32).to(device)
             scores_query = scores_query.unsqueeze(-1)
             scores_query = torch.cat([scores_query, 10 - scores_query], dim=1)
             scores_query_batch.append(scores_query)
@@ -108,7 +110,7 @@ def train_2nd_stage(k, number_of_batches, batch_size):
     generator = visual_attractiveness.TextFeaturesGenerator(k)
 
     text_features = torch.load("weights/text_features_mebeauty_100k.pth")
-    text_features = torch.tensor(text_features, dtype=torch.float32, requires_grad=True).to("mps")
+    text_features = torch.tensor(text_features, dtype=torch.float32, requires_grad=True).to(device)
 
     mse_loss = nn.MSELoss()
     optimizer = optim.Adam(generator.parameters(), lr=1e-3)

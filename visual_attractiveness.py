@@ -14,7 +14,7 @@ import torch.nn.init as init
 import cv2
 from PIL import Image
 
-device = 'mps'
+device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 embedding_size = 512
 
 
