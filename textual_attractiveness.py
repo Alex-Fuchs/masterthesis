@@ -29,9 +29,3 @@ class TextualAttractiveness:
             return float(result.content)
         except ValueError:
             print(f'Error: {result.content}')
-
-
-if __name__ == "__main__":
-    predictor = TextualAttractiveness()
-
-    print(predictor.predict_score())
