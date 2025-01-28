@@ -4,13 +4,12 @@ from glob import glob
 import cv2
 
 import numpy as np
+import torch
 
 from visual_attractiveness import VisualAttractiveness
 
 
-def load_image_path_to_latent(filenames=None, folder_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/MEBeauty-database-main/original_images'):
-    predictor = VisualAttractiveness()
-
+def load_image_path_to_latent(predictor, filenames=None, folder_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/MEBeauty-database-main/original_images'):
     if filenames is None:
         filenames = [y for x in os.walk(folder_name) for y in glob(os.path.join(x[0], '*.jpg'))]
 
@@ -67,9 +66,14 @@ def load_image_path_to_personalized_scores(file_name='/Users/alexanderfuchs/Desk
             for column_name, score in zip(column_names[3:], splitted_line[3:]):
                 if score != '':
                     try:
-                        scores_with_raters_of_image[column_name] = (float(score.replace(',', '.')) - 1) * 10/9
+                        score = score.replace(',', '.')
+                        score = float(score)
+                        score -= 1
+                        score *= 10/9
                     except ValueError:
                         continue
+
+                    scores_with_raters_of_image[column_name] = score
 
             image_path_to_scores[image_path] = scores_with_raters_of_image
 
@@ -102,6 +106,9 @@ def test(predictor, image_path_to_score):
 
 
 if __name__ == "__main__":
-    predictor = VisualAttractiveness()
+    text_features = torch.load("weights/text_features_mebeauty_100k.pth")
+    text_features = torch.tensor(text_features, dtype=torch.float32)
+
+    predictor = VisualAttractiveness(text_features)
 
     test(predictor, load_image_path_to_score())

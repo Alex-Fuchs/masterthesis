@@ -1,154 +1,124 @@
-import random
+import os.path
+
+import cv2
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
-from torch.utils.data import DataLoader
-
-import dataset_mebeauty as mebeauty
 import visual_attractiveness
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 
 
-def train_1st_stage(number_of_epochs, batch_size):
-    predictor = visual_attractiveness.VisualAttractiveness()
+def show_rgb_image(rgb):
+    plt.figure(figsize=(6, 6))
+    plt.imshow(rgb)
+    plt.axis("off")
+    plt.show()
 
-    text_features = torch.load("weights/text_features_mebeauty_50k.pth")
-    text_features = nn.Parameter(torch.tensor(text_features, dtype=torch.float32, requires_grad=True)).to(device)
 
-    mse_loss = nn.MSELoss()
+def load_images(predictor, folder_name, file_names):
+    latents = []
+
+    for filename in file_names:
+        img_path = os.path.join(folder_name, filename)
+        bgr = cv2.imread(img_path)
+
+        show_rgb_image(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
+
+        if bgr is not None:
+            human = predictor.get_human(bgr)
+            latent = predictor.encode_image(human)
+
+            latents.append(latent)
+
+    latents = torch.cat(latents, dim=0)
+
+    return latents
+
+
+def test(predictor, train_file_names, scores_train, test_file_names, folder_name):
+    captions = ["attractive", "unattractive"]
+    encoded_captions = predictor.encode_captions(captions)
+    text_features = nn.Parameter(torch.tensor(encoded_captions, dtype=torch.float32, requires_grad=True))
+
+    image_features_train = load_images(predictor, folder_name, train_file_names)
+    image_features_train = torch.tensor(image_features_train, dtype=torch.float32).to(device)
+
+    scores_train = torch.tensor(scores_train, dtype=torch.float32).to(device)
+
+    image_features_test = load_images(predictor, folder_name, test_file_names)
+    image_features_test = torch.tensor(image_features_test, dtype=torch.float32).to(device)
+
     optimizer = optim.Adam([text_features], lr=1e-4)
+    mseloss = nn.MSELoss()
 
-    image_path_to_score = mebeauty.load_image_path_to_score()
-    image_path_to_score = list(image_path_to_score.items())
-    image_path_to_score = DataLoader(image_path_to_score, batch_size=batch_size, collate_fn=lambda batch: batch, shuffle=True)
+    # BEFORE
 
-    losses = []
-    for epoch_index in range(number_of_epochs):
-        for batch in image_path_to_score:
-            image_paths = list(zip(*batch))[0]
+    predicted_scores_before = predictor.predict_scores(image_features_test, text_features)
 
-            image_path_to_latent = mebeauty.load_image_path_to_latent(image_paths)
+    # FINETUNING
 
-            latent_to_score = [(image_path_to_latent[image_path], score) for image_path, score in batch if image_path in list(image_path_to_latent.keys())]
-            latents, scores = list(zip(*latent_to_score))
+    stop_epochs = 5
 
-            image_features = torch.cat(latents, dim=0)
-            image_features = torch.tensor(image_features, dtype=torch.float32).to(device)
+    stop_counter = 0
+    previous_loss = 100
 
-            predicted_scores = predictor.predict_scores(image_features, text_features)
+    while stop_counter < stop_epochs:
+        predicted_scores = predictor.predict_scores(image_features_train, text_features)
 
-            scores = torch.tensor(scores, dtype=torch.float32).to(device)
-            scores = scores.unsqueeze(-1)
-            scores = torch.cat([scores, 10 - scores], dim=1)
-
-            loss = mse_loss(predicted_scores, scores)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            losses.append(loss.item())
-
-            print(f"Loss: {torch.mean(torch.tensor(losses)):.4f}")
-
-        print(f"Epoch [{epoch_index + 1}], Loss: {torch.mean(torch.tensor(losses)):.4f}")
-
-    torch.save(text_features, "weights/text_features_mebeauty_100k.pth")
-    print("Text Features Mebeauty saved!")
-
-
-def batch_2nd_stage(raters_with_scores, image_path_to_latent, k, batch_size):
-    images_support_batch = []
-    images_query_batch = []
-    scores_support_batch = []
-    scores_query_batch = []
-    support_batch = []
-
-    for index in range(batch_size):
-        rater = random.choice(list(raters_with_scores.keys()))
-
-        image_paths_to_scores = raters_with_scores[rater]
-
-        latent_to_score = [(image_path_to_latent[image_path], score) for image_path, score in image_paths_to_scores if image_path in list(image_path_to_latent.keys())]
-        latent_to_score = random.choices(latent_to_score, k=k * 2)
-
-        if len(latent_to_score) == k * 2:
-            latents, scores = list(zip(*latent_to_score))
-
-            images_support = torch.cat(latents[:k], dim=0)
-            images_support = torch.tensor(images_support, dtype=torch.float32).to(device)
-            images_support_batch.append(images_support)
-
-            images_query = torch.cat(latents[k:], dim=0)
-            images_query = torch.tensor(images_query, dtype=torch.float32).to(device)
-            images_query_batch.append(images_query)
-
-            scores_support = torch.tensor(scores[:k], dtype=torch.float32).to(device)
-            scores_support = scores_support.unsqueeze(-1)
-            scores_support_batch.append(scores_support)
-
-            scores_query = torch.tensor(scores[k:], dtype=torch.float32).to(device)
-            scores_query = scores_query.unsqueeze(-1)
-            scores_query = torch.cat([scores_query, 10 - scores_query], dim=1)
-            scores_query_batch.append(scores_query)
-
-            support = torch.cat([scores_support, images_support], dim=1)
-            support_batch.append(support)
-
-    support_batch = torch.stack(support_batch)
-    images_query_batch = torch.stack(images_query_batch)
-    scores_query_batch = torch.stack(scores_query_batch)
-
-    return support_batch, images_query_batch, scores_query_batch
-
-
-def train_2nd_stage(k, number_of_batches, batch_size):
-    predictor = visual_attractiveness.VisualAttractiveness()
-    generator = visual_attractiveness.TextFeaturesGenerator(k)
-
-    text_features = torch.load("weights/text_features_mebeauty_100k.pth")
-    text_features = torch.tensor(text_features, dtype=torch.float32, requires_grad=True).to(device)
-
-    mse_loss = nn.MSELoss()
-    optimizer = optim.Adam(generator.parameters(), lr=1e-3)
-
-    raters_with_scores = mebeauty.load_rater_to_personalized_scores()
-    raters_with_scores = {rater: scores for rater, scores in raters_with_scores.items() if len(scores) >= k * 3}
-
-    image_path_to_latent = mebeauty.load_image_path_to_latent()
-
-    losses = []
-    for batch_index in range(number_of_batches):
-        support, images_query, scores_query = batch_2nd_stage(raters_with_scores, image_path_to_latent, k, batch_size)
-
-        predicted_delta_text_features = generator(support)
-
-        predicted_text_features = text_features + predicted_delta_text_features
-
-        predicted_scores = predictor.predict_scores(images_query, predicted_text_features)
-
-        loss = mse_loss(predicted_scores, scores_query)
+        loss = mseloss(predicted_scores, scores_train)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        losses.append(loss.item())
+        if loss.item() < previous_loss:
+            stop_counter = 0
 
-        print(f"Loss: {torch.mean(torch.tensor(losses)):.4f}")
+            previous_loss = loss.item()
+        else:
+            stop_counter += 1
 
-        if (batch_index + 1) % 40 == 0:
-            print(f"Epoch [{(batch_index + 1) // 40}], Loss: {torch.mean(torch.tensor(losses)):.4f}")
+        print(f"Loss: {loss.item()}")
+
+    # AFTER
+
+    text_features = text_features / text_features.norm(dim=1, keepdim=True)
+
+    predicted_scores_after = predictor.predict_scores(image_features_test, text_features)
+
+    print('')
+    print('BEFORE:')
+    print(predicted_scores_before)
+    print('AFTER:')
+    print(predicted_scores_after)
 
 
-    torch.save(generator.state_dict(), "weights/generator_mebeauty.pth")
-    print("Generator parameters saved!")
+def test_hair_color(predictor, folder_name):
+    train_file_names = ['0dd3bdd9f75242d3c8c34eea5c3eae7c.jpg', '0dd7eab34395055a8547b26df6b06b06.jpg', '0e136998854dd3fda68fd07375c2bc1d.jpg', '1b0f1a8ec2e3ba5f4c68936f83e50fde.jpg', '0ff7c3c133b3687a4975bb878aabd02d.jpg']
+    scores_train = [[10.0, 0.0], [10.0, 0.0], [8.0, 2.0], [6.0, 4.0], [5.0, 5.0]]
+
+    test_file_names = ['0fbbdcc47bc8356cbd3186ffb880b21e.jpg', '0fda9d1e0e1aec4f5cc18b03020a5371.jpg', '0fb70e487e1036ef7d2a288a4b034601.jpg', '0fb803ceb5c6f3d1c95a5f4efb3a2108.jpg']
+
+    test(predictor, train_file_names, scores_train, test_file_names, folder_name)
+
+
+def test_skin_color(predictor, folder_name):
+    train_file_names = ['0f273338b78f9d2014ae8e2a0659c0e4.jpg', '2c14baf35ae5512ab91fc2546515b754.jpg', '2fc37c24dcfd85da4bea13fcd3cff0e5.jpg']
+    scores_train = [[8.0, 2.0], [7.0, 3.0], [10.0, 0.0]]
+
+    test_file_names = ['6d07c19ad563a6d92c771e1141b1c7ca.jpg', '06f87355f734a1208f3fa83e668354a6.jpg']
+
+    test(predictor, train_file_names, scores_train, test_file_names, folder_name)
 
 
 if __name__ == "__main__":
-    #train_1st_stage(20, 64)
+    predictor = visual_attractiveness.VisualAttractiveness()
 
-    train_2nd_stage(3, 10_000, 32)
+    folder_name = '/Users/alexanderfuchs/Desktop/WS_24_25/TinderBotz/data_man2woman/geomatches/images'
+
+    test_skin_color(predictor, folder_name)
+

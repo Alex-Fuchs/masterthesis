@@ -9,85 +9,42 @@ from deepface import DeepFace
 from ultralytics import YOLO
 
 import torch.nn as nn
-import torch.nn.init as init
 
 import cv2
 from PIL import Image
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
-embedding_size = 512
-
-
-class TextFeaturesGenerator(nn.Module):
-
-    def __init__(self, k):
-        super(TextFeaturesGenerator, self).__init__()
-
-        self.k = k
-
-        self.fc1 = nn.Linear(self.k * (embedding_size + 1), self.k * embedding_size).to(device)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(self.k * embedding_size, self.k * embedding_size).to(device)
-        self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(self.k * embedding_size, self.k * embedding_size).to(device)
-        self.relu3 = nn.ReLU()
-        self.fc4 = nn.Linear(self.k * embedding_size, self.k * embedding_size).to(device)
-        self.relu4 = nn.ReLU()
-        self.fc5 = nn.Linear(self.k * embedding_size, 2 * embedding_size).to(device)
-
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        init.xavier_uniform_(self.fc1.weight)
-        init.zeros_(self.fc1.bias)
-
-        init.xavier_uniform_(self.fc2.weight)
-        init.zeros_(self.fc2.bias)
-
-    def forward(self, x):
-        x = x.reshape(x.shape[0], x.shape[1] * x.shape[2])
-
-        x = self.fc1(x)
-        x = self.relu1(x)
-        x = self.fc2(x)
-        x = self.relu2(x)
-        x = self.fc3(x)
-        x = self.relu3(x)
-        x = self.fc4(x)
-        x = self.relu4(x)
-        x = self.fc5(x)
-
-        x = x.reshape(x.shape[0], 2, embedding_size)
-
-        return x
 
 
 class VisualAttractiveness(nn.Module):
 
-    def __init__(self, captions=None):
+    def __init__(self, captions=None, text_features=None, predictor_to_clone=None):
         super().__init__()
         self.predictor, self.predictor_preprocess = clip.load("ViT-B/32", device=device)
         self.human_detector = YOLO("yolov8n.pt")
 
-        if captions is None:
-            captions = ["attractive", "unattractive"]
+        if text_features is None:
+            if captions is None:
+                self.text_features = self.encode_captions(["attractive", "unattractive"])
+            else:
+                self.text_features = self.encode_captions(captions)
+        else:
+            self.text_features = text_features.to(device)
 
-        self.text_features = self.encode_captions(captions)
+        if predictor_to_clone is not None:
+            self.predictor.load_state_dict(predictor_to_clone.predictor.state_dict())
 
     def predict_scores(self, image_features, text_features=None):
         if text_features is None:
             text_features = self.text_features
 
+        text_features = text_features.to(device)
+        image_features = image_features.to(device)
+
         logit_scale = self.predictor.logit_scale.exp()
-
-        if len(image_features.shape) == 3 and len(text_features.shape) == 3:
-            logits_per_image = logit_scale * image_features @ torch.transpose(text_features, 1, 2)
-        else:
-            logits_per_image = logit_scale * image_features @ text_features.t()
-
+        logits_per_image = logit_scale * image_features @ text_features.t()
         scores = logits_per_image.softmax(dim=-1) * 10
 
-        # (b, n, 512) (b, 2, 512)
         return scores
 
     def encode_captions(self, captions):
@@ -97,7 +54,7 @@ class VisualAttractiveness(nn.Module):
 
         return text_features
 
-    def encode_image(self, image: Image.Image):
+    def encode_image(self, image):
         image = self.predictor_preprocess(image).unsqueeze(0).to(device)
         image_features = self.predictor.encode_image(image)
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
@@ -129,33 +86,35 @@ class VisualAttractiveness(nn.Module):
         else:
             return None
 
-    def predict_facial_beauty(self, bgr, captions=None):
+    @torch.no_grad()
+    def predict_facial_beauty(self, bgr, text_features=None):
         face = self.get_face(bgr)
 
         if face is not None:
             image_features = self.encode_image(face)
 
-            if captions is not None:
-                text_features = self.encode_captions(captions)
-            else:
+            if text_features is None:
                 text_features = self.text_features
 
-            return self.predict_scores(image_features, text_features)[0][0], face
+            text_features = text_features.to(device)
+
+            return self.predict_scores(image_features, text_features)[0][0].item(), face
         else:
             return None, face
 
-    def predict_physical_beauty(self, bgr, captions=None):
+    @torch.no_grad()
+    def predict_physical_beauty(self, bgr, text_features=None):
         human = self.get_human(bgr)
 
         if human is not None:
             image_features = self.encode_image(human)
 
-            if captions is not None:
-                text_features = self.encode_captions(captions)
-            else:
+            if text_features is None:
                 text_features = self.text_features
 
-            return self.predict_scores(image_features, text_features)[0][0], human
+            text_features = text_features.to(device)
+
+            return self.predict_scores(image_features, text_features)[0][0].item(), human
         else:
             return None, human
 
@@ -173,6 +132,7 @@ if __name__ == "__main__":
         sys.exit(f"File {image_path} does not exist")
 
     predictor = VisualAttractiveness()
+    print(predictor.predictor.visual)
 
     image = cv2.imread(image_path)
 
