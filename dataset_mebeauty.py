@@ -9,7 +9,7 @@ import torch
 from visual_attractiveness import VisualAttractiveness
 
 
-def load_image_path_to_latent(predictor, filenames=None, folder_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/MEBeauty-database-main/original_images'):
+def load_image_path_to_latent(predictor, filenames=None, folder_name='MEBeauty-database-main/original_images'):
     if filenames is None:
         filenames = [y for x in os.walk(folder_name) for y in glob(os.path.join(x[0], '*.jpg'))]
 
@@ -28,7 +28,7 @@ def load_image_path_to_latent(predictor, filenames=None, folder_name='/Users/ale
     return image_path_to_latent
 
 
-def load_image_path_to_score(file_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/MEBeauty-database-main/scores/generic_scores_all.csv'):
+def load_image_path_to_score(file_name='MEBeauty-database-main/scores/generic_scores_all.csv'):
     image_path_to_score = {}
     for line in open(file_name, 'r').readlines():
         splitted_line = line.split(';')
@@ -50,7 +50,7 @@ def load_image_path_to_score(file_name='/Users/alexanderfuchs/Desktop/WS_24_25/a
     return image_path_to_score
 
 
-def load_image_path_to_personalized_scores(file_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/MEBeauty-database-main/scores/generic_scores_all.csv'):
+def load_image_path_to_personalized_scores(file_name='MEBeauty-database-main/scores/generic_scores_all.csv'):
     image_path_to_scores = {}
 
     column_names = open(file_name, 'r').readlines()[0]
