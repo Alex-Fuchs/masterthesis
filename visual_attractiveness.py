@@ -3,24 +3,36 @@ import sys
 
 from pathlib import Path
 
-import clip
-import torch
-from deepface import DeepFace
-from ultralytics import YOLO
-
-import torch.nn as nn
-
 import cv2
 from PIL import Image
+
+import matplotlib.pyplot as plt
+
+import numpy as np
+
+import torch
+import torch.nn as nn
+
+from transformers import CLIPProcessor, CLIPModel
+from deepface import DeepFace
+from ultralytics import YOLO
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps")
 
 
 class VisualAttractiveness(nn.Module):
 
-    def __init__(self, captions=None, text_features=None, predictor_to_clone=None):
+    def __init__(self, captions=None, text_features=None):
         super().__init__()
-        self.predictor, self.predictor_preprocess = clip.load("ViT-B/32", device=device)
+
+        self.model = CLIPModel.from_pretrained(
+            "openai/clip-vit-base-patch32",
+            device_map=device,
+            torch_dtype=torch.float32
+        )
+
+        self.preprocessor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
         self.human_detector = YOLO("yolov8n.pt")
 
         if text_features is None:
@@ -29,10 +41,7 @@ class VisualAttractiveness(nn.Module):
             else:
                 self.text_features = self.encode_captions(captions)
         else:
-            self.text_features = text_features.to(device)
-
-        if predictor_to_clone is not None:
-            self.predictor.load_state_dict(predictor_to_clone.predictor.state_dict())
+            self.text_features = text_features
 
     def predict_scores(self, image_features, text_features=None):
         if text_features is None:
@@ -41,22 +50,22 @@ class VisualAttractiveness(nn.Module):
         text_features = text_features.to(device)
         image_features = image_features.to(device)
 
-        logit_scale = self.predictor.logit_scale.exp()
+        logit_scale = self.model.logit_scale.exp()
         logits_per_image = logit_scale * image_features @ text_features.t()
         scores = logits_per_image.softmax(dim=-1) * 10
 
         return scores
 
     def encode_captions(self, captions):
-        captions = clip.tokenize(captions).to(device)
-        text_features = self.predictor.encode_text(captions)
+        text_inputs = self.preprocessor(text=captions, return_tensors="pt", padding=True).to(device)
+        text_features = self.model.get_text_features(**text_inputs)
         text_features = text_features / text_features.norm(dim=1, keepdim=True)
 
         return text_features
 
     def encode_image(self, image):
-        image = self.predictor_preprocess(image).unsqueeze(0).to(device)
-        image_features = self.predictor.encode_image(image)
+        image_inputs = self.preprocessor(images=image, return_tensors="pt").to(device)
+        image_features = self.model.get_image_features(**image_inputs)
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
 
         return image_features
@@ -65,7 +74,8 @@ class VisualAttractiveness(nn.Module):
         faces = DeepFace.extract_faces(bgr, detector_backend='retinaface', expand_percentage=10, normalize_face=False, enforce_detection=False)
 
         if len(faces) == 1:
-            face = Image.fromarray(faces[0]['face'].astype('uint8'), 'RGB')
+            face = faces[0]['face']
+            face = Image.fromarray(face.astype('uint8'), 'RGB')
 
             return face
         else:
@@ -87,16 +97,109 @@ class VisualAttractiveness(nn.Module):
             return None
 
     @torch.no_grad()
+    def explainable_heatmap_rise(self, image, text_features=None, num_masks=10000, mask_size=8, batch_size=264):
+        image_inputs = self.preprocessor(images=image, return_tensors="pt").to(device)
+
+        saliency_map = torch.zeros(224, 224).to(device)
+        saliency_map_count = torch.zeros(224, 224).to(device)
+
+        for m in range(num_masks // batch_size + 1):
+            masks = []
+            for b in range(batch_size):
+                mask = np.random.choice([0, 1], size=(mask_size, mask_size), p=[0.5, 0.5])
+                mask = torch.tensor(mask).unsqueeze(0).unsqueeze(0).to(device)
+                mask = torch.nn.functional.interpolate(mask, size=(224, 224), mode="nearest")
+
+                masks.append(mask)
+
+            masks = torch.cat(masks, dim=0)
+
+            image_inputs_masked = image_inputs['pixel_values'] * masks
+
+            image_features_masked = self.model.get_image_features(image_inputs_masked)
+            image_features_masked = image_features_masked / image_features_masked.norm(dim=1, keepdim=True)
+
+            scores = self.predict_scores(image_features_masked, text_features)[:, 0]
+
+            masks = masks.squeeze()
+            scores = scores.unsqueeze(-1).unsqueeze(-1)
+
+            saliency_map += torch.sum(masks * scores, dim=0)
+            saliency_map_count += torch.sum(masks, dim=0)
+
+        saliency_map = saliency_map / saliency_map_count
+        saliency_map = saliency_map.cpu().numpy()
+
+        saliency_map = (saliency_map - saliency_map.min()) / (saliency_map.max() - saliency_map.min())
+        saliency_map = cv2.applyColorMap(np.uint8(255 * saliency_map), cv2.COLORMAP_JET)
+
+        plt.figure(figsize=(10, 5))
+        plt.subplot(1, 2, 1)
+        plt.imshow(cv2.resize(np.array(image), (224, 224)))
+        plt.axis("off")
+        plt.title("Original image (224x224)")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(saliency_map)
+        plt.axis("off")
+        plt.title("Saliency Map (RISE)")
+        plt.show()
+
+    '''def explainable_heatmap_gradient(self, rgb, text_features=None):
+        image_inputs = self.preprocess(images=image, return_tensors="pt").to(device)
+        image_inputs.requires_grad = True
+
+        image_features = self.predictor.get_image_features(**image_inputs)
+        image_features = image_features / image_features.norm(dim=1, keepdim=True)
+
+        scores = self.predict_scores(image_features, text_features)
+
+        loss = -scores[0, 0]
+        loss.backward()
+
+        gradients = image_inputs.grad.abs().cpu().detach().numpy()[0]
+        gradients = np.mean(gradients, 0)
+
+        saliency_map = (gradients - gradients.min()) / (gradients.max() - gradients.min())
+        saliency_map = cv2.applyColorMap(np.uint8(255 * saliency_map), cv2.COLORMAP_JET)
+        saliency_map = cv2.cvtColor(saliency_map, cv2.COLOR_BGR2RGB)
+
+        np_image = cv2.resize(np.array(rgb), (saliency_map.shape[1], saliency_map.shape[0]))
+
+        plt.figure(figsize=(10, 5))
+        plt.subplot(1, 2, 1)
+        plt.imshow(np_image)
+        plt.axis("off")
+        plt.title("Original image (224x224)")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(saliency_map)
+        plt.axis("off")
+        plt.title("Saliency Map (Gradient)")
+        plt.show()
+
+        return scores'''
+
+    @torch.no_grad()
+    def explainable_heatmap_facial(self, bgr, text_features=None):
+        face = self.get_face(bgr)
+
+        if face is not None:
+            self.explainable_heatmap_rise(face, text_features)
+
+    @torch.no_grad()
+    def explainable_heatmap_physical(self, bgr, text_features=None):
+        human = self.get_human(bgr)
+
+        if human is not None:
+            self.explainable_heatmap_rise(human, text_features)
+
+    @torch.no_grad()
     def predict_facial_beauty(self, bgr, text_features=None):
         face = self.get_face(bgr)
 
         if face is not None:
             image_features = self.encode_image(face)
-
-            if text_features is None:
-                text_features = self.text_features
-
-            text_features = text_features.to(device)
 
             return self.predict_scores(image_features, text_features)[0][0].item(), face
         else:
@@ -108,11 +211,6 @@ class VisualAttractiveness(nn.Module):
 
         if human is not None:
             image_features = self.encode_image(human)
-
-            if text_features is None:
-                text_features = self.text_features
-
-            text_features = text_features.to(device)
 
             return self.predict_scores(image_features, text_features)[0][0].item(), human
         else:
@@ -132,13 +230,9 @@ if __name__ == "__main__":
         sys.exit(f"File {image_path} does not exist")
 
     predictor = VisualAttractiveness()
-    print(predictor.predictor.visual)
 
     image = cv2.imread(image_path)
 
-    facial_beauty_score, face = predictor.predict_facial_beauty(image)
-    human_beauty_score, human = predictor.predict_physical_beauty(image)
+    score, _ = predictor.predict_physical_beauty(image)
 
-    print(f'FB: {facial_beauty_score}, HB: {human_beauty_score}')
-    face.show()
-    human.show()
+    print(score)

@@ -1,12 +1,13 @@
-import os
 from glob import glob
+
+import os
 
 import cv2
 
 import numpy as np
 import torch
 
-from visual_attractiveness import VisualAttractiveness
+import visual_attractiveness
 
 
 def load_image_path_to_latent(predictor, filenames=None, folder_name='./MEBeauty-database-main/original_images'):
@@ -41,7 +42,7 @@ def load_image_path_to_score(file_name='./MEBeauty-database-main/scores/generic_
                 score = score.replace(',', '.')
                 score = float(score)
                 score -= 1
-                score *= 10/9
+                score *= 10 / 9
             except ValueError:
                 continue
 
@@ -69,7 +70,7 @@ def load_image_path_to_personalized_scores(file_name='./MEBeauty-database-main/s
                         score = score.replace(',', '.')
                         score = float(score)
                         score -= 1
-                        score *= 10/9
+                        score *= 10 / 9
                     except ValueError:
                         continue
 
@@ -109,6 +110,6 @@ if __name__ == "__main__":
     text_features = torch.load("weights/text_features_mebeauty_100k.pth")
     text_features = torch.tensor(text_features, dtype=torch.float32)
 
-    predictor = VisualAttractiveness(text_features)
+    predictor = visual_attractiveness.VisualAttractiveness()
 
     test(predictor, load_image_path_to_score())

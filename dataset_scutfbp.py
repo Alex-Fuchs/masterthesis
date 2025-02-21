@@ -5,10 +5,11 @@ import cv2
 import torch
 import numpy as np
 
-from visual_attractiveness import VisualAttractiveness
+import visual_attractiveness
 
 
-def load_image_path_to_score(folder_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/SCUT-FBP5500_v2/Images', file_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/SCUT-FBP5500_v2/train_test_files/All_labels.txt'):
+def load_image_path_to_score(folder_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/SCUT-FBP5500_v2/Images',
+                             file_name='/Users/alexanderfuchs/Desktop/WS_24_25/attractiveness_model/SCUT-FBP5500_v2/train_test_files/All_labels.txt'):
     image_path_to_score = {}
     for line in open(file_name, 'r').readlines():
         splitted_line = line.split()
@@ -38,11 +39,6 @@ if __name__ == "__main__":
     text_features = torch.load("weights/text_features_mebeauty_100k.pth")
     text_features = torch.tensor(text_features, dtype=torch.float32)
 
-    predictor = VisualAttractiveness()
+    predictor = visual_attractiveness.VisualAttractiveness(text_features=text_features)
 
-    image_path_to_score = load_image_path_to_score()
-
-    test(predictor, image_path_to_score)
-
-
-
+    test(predictor, load_image_path_to_score())
