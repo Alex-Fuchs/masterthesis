@@ -82,15 +82,19 @@ class VisualAttractivenessExplainable(nn.Module):
 
 
 def compare_to_old(predictor_old, predictor_new, image_path_to_score, k=100):
-    avg_body = []
+    avg_old = []
+    avg_new = []
     for image_path, score in list(image_path_to_score.items())[:k]:
         human_beauty_score_new = predictor_new.predict_physical_beauty(image_path)
         human_beauty_score_old, _ = predictor_old.predict_physical_beauty(cv2.imread(image_path))
 
-        if human_beauty_score_new is not None and human_beauty_score_old is not None:
-            avg_body.append(abs(human_beauty_score_new - human_beauty_score_old))
+        if human_beauty_score_new is not None:
+            avg_new.append(abs(human_beauty_score_new - score))
+        if human_beauty_score_old is not None:
+            avg_old.append(abs(round(human_beauty_score_old) - score))
 
-    print(np.mean(np.array(avg_body)))
+    print(f'New: MAE: {np.mean(np.array(avg_new))}, MSE: {np.mean(np.pow(np.array(avg_new), 2))}')
+    print(f'Old: MAE: {np.mean(np.array(avg_old))}, MSE: {np.mean(np.pow(np.array(avg_old), 2))}')
 
 
 if __name__ == "__main__":
@@ -98,3 +102,6 @@ if __name__ == "__main__":
     predictor_new = VisualAttractivenessExplainable()
 
     compare_to_old(predictor_old, predictor_new, mebauty.load_image_path_to_score())
+
+    # New: MAE: 2.6563868136, MSE: 10.250841596606435
+    # Old: MAE: 1.3256340509595959, MSE: 2.882406069553713

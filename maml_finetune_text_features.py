@@ -45,7 +45,7 @@ def get_batch(predictor, raters_with_scores, batch_size, k):
         return batch
 
 
-def train_maml(number_of_batches, batch_size, k):
+def train_maml(number_of_batches, batch_size, k, s):
     predictor = visual_attractiveness.VisualAttractiveness()
 
     raters_with_scores = mebeauty.load_rater_to_personalized_scores()
@@ -77,7 +77,7 @@ def train_maml(number_of_batches, batch_size, k):
             predicted_scores = predictor.predict_scores(image_features_query, text_features_old)
             loss_before = loss_before + inner_mse_loss(predicted_scores, scores_query)
 
-            for i in range(3):
+            for i in range(s):
                 predicted_scores = predictor.predict_scores(image_features_support, clone_text_features)
                 inner_loss = inner_mse_loss(predicted_scores, scores_support)
 
@@ -98,24 +98,26 @@ def train_maml(number_of_batches, batch_size, k):
         losses_before.append(loss_before)
         losses_after.append(loss_after)
 
-        print(f"Loss: {torch.mean(torch.tensor(losses_after))}, Loss Diff: {torch.mean(torch.tensor(losses_before) - torch.tensor(losses_after)):.4f}")
+        print(f"Loss: {torch.mean(torch.tensor(losses_after))}, Loss Before: {torch.mean(torch.tensor(losses_before)):.4f}")
 
-    torch.save(text_features, f"weights/text_features_mebeauty_maml_k{k}_25k_v3.pth")
-    print("Text Features Mebeauty Maml saved!")
+    torch.save(text_features, f"weights/text_features_mebeauty_maml_k{k}_s{s}_25k.pth")
+    print(f"Text Features Mebeauty Maml k={k} s={s} saved!")
 
 
-def test_maml(number_of_batches, batch_size, k):
+def test_maml(number_of_batches, batch_size, k, s):
     predictor = visual_attractiveness.VisualAttractiveness()
 
     raters_with_scores = mebeauty.load_rater_to_personalized_scores()
     raters_with_scores = {rater: scores for rater, scores in raters_with_scores.items() if len(scores) >= k + 18}
 
-    text_features_old = torch.load(f"weights/text_features_mebeauty_maml_k{k}_25k_v3.pth")
-    text_features = nn.Parameter(text_features_old, requires_grad=True)
+    text_features_old = torch.load(f"weights/text_features_mebeauty_100k.pth")
 
-    losses = []
+    text_features = torch.load(f"weights/text_features_mebeauty_maml_k{k}_s{s}_25k.pth")
+    text_features = nn.Parameter(text_features, requires_grad=True)
+
+    diff_before = []
+    diff_after = []
     for batch_index in range(number_of_batches):
-        loss_after = 0
 
         batch = get_batch(predictor, raters_with_scores, batch_size, k)
 
@@ -127,7 +129,10 @@ def test_maml(number_of_batches, batch_size, k):
             ], lr=1e-4)
             inner_mse_loss = nn.MSELoss()
 
-            for i in range(3):
+            predicted_scores = predictor.predict_scores(image_features_query, text_features_old)
+            diff_before.append(torch.mean(torch.abs(predicted_scores[:, 0] - scores_query[:, 0])))
+
+            for i in range(s):
                 predicted_scores = predictor.predict_scores(image_features_support, clone_text_features)
                 inner_loss = inner_mse_loss(predicted_scores, scores_support)
 
@@ -136,25 +141,30 @@ def test_maml(number_of_batches, batch_size, k):
                 inner_optimizer.step()
 
             predicted_scores = predictor.predict_scores(image_features_query, clone_text_features)
-            loss_after = loss_after + inner_mse_loss(predicted_scores, scores_query)
+            diff_after.append(torch.mean(torch.abs(predicted_scores[:, 0] - scores_query[:, 0])))
 
-        loss_after = loss_after / len(batch)
-
-        losses.append(loss_after)
-
-    print(f"Loss k={k}: {torch.mean(torch.tensor(losses)):.4f}")
+    print(f"MAE k={k} s={s}: {torch.mean(torch.stack(diff_after))}, MAE Before: {torch.mean(torch.stack(diff_before)):.4f}")
 
 
 if __name__ == "__main__":
-    # print('Training...')
-    # train_maml(85, 16, 3)
-    # print('---')
-    # train_maml(75, 16, 5)
-    # print('---')
-    # train_maml(61, 16, 10)
+    print('Training...')
+    train_maml(85, 16, 3, 3)
+    train_maml(85, 16, 3, 6)
+    train_maml(85, 16, 3, 9)
+    train_maml(75, 16, 5, 3)
+    train_maml(75, 16, 5, 6)
+    train_maml(75, 16, 5, 9)
+    train_maml(61, 16, 10, 3)
+    train_maml(61, 16, 10, 6)
+    train_maml(61, 16, 10, 9)
 
-    print('Testing...')
-
-    test_maml(32, 16, 3)
-    test_maml(32, 16, 5)
-    test_maml(32, 16, 10)
+    '''print('Testing...')
+    test_maml(32, 16, 3, 3)
+    test_maml(32, 16, 3, 6)
+    test_maml(32, 16, 3, 9)
+    test_maml(32, 16, 5, 3)
+    test_maml(32, 16, 5, 6)
+    test_maml(32, 16, 5, 9)
+    test_maml(32, 16, 10, 3)
+    test_maml(32, 16, 10, 6)
+    test_maml(32, 16, 10, 9)'''
